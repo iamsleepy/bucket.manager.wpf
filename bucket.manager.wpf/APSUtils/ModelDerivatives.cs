@@ -78,7 +78,7 @@ namespace bucket.manager.wpf.APSUtils
         /// Prepare a list of URL and cookies for a given URN
         /// </summary>
         /// <param name="urn">URN of the resource on Autodesk Platform Services</param>
-        /// <param name="accessToken">Valid access token to download the resources</param>
+        /// <param name="accessToken">Valid access token for downloading the resources</param>
         /// /// <param name="region">Desired region</param>
         /// <returns>List of resources for the given URN</returns>
         public static async Task<List<Resource>> PrepareUrlForDownload(string urn, string accessToken, string region)
@@ -171,7 +171,8 @@ namespace bucket.manager.wpf.APSUtils
         /// <returns></returns>
         private static async Task<DerivativeDownloadWithCookie> FetchDerivativeDownloadUrl(string derivativeUrn, string urn, string region, string accessToken)
         {
-            // Get the download URL for the resource, we use api to from Autodesk.ModelDerivative.Http to get the http response
+            // Get the download URL for the resource. The latest API uses signed cookies for downloading the resources.
+            // We use APIs from Autodesk.ModelDerivative.Http to get the DerivativeDownload with HttpResponse
             var client = new DerivativesApi(SdkManagerHelper.Instance);
             var regionEnum = GetRegionEnum(region);
             var derivativeDownloadResponse =  await client.GetDerivativeUrlAsync(derivativeUrn, urn, regionEnum, accessToken: accessToken, throwOnError: true);
