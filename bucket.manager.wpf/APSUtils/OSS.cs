@@ -57,12 +57,31 @@ namespace bucket.manager.wpf.APSUtils
             return result;
         }
 
+        /// <summary>
+        /// Upload file with OSS file uploader
+        /// </summary>
+        /// <param name="bucketKey">Bucket key</param>
+        /// <param name="objectKey">Object key</param>
+        /// <param name="sourceToUpload">Local file path</param>
+        /// <param name="accessToken">Access token</param>
+        /// <param name="progressUpdater">A progress updater for UI. Implement IProgress&lt;int&gt; interface </param>
+        /// <returns></returns>
         public static async Task<HttpResponseMessage> UploadFileWithProgress(string bucketKey, string objectKey, string sourceToUpload, string accessToken, IProgress<int> progressUpdater)
         {
+            // Create a new OSS file transfer client, using the configurations and authentication client
             var client = new OSSFileTransfer(FileTransferConfigurations.Instance, new Authentication());
+
+            // Upload the file
             return await client.Upload(bucketKey, objectKey, sourceToUpload, accessToken, CancellationToken.None, progress:progressUpdater);
         }
 
+        /// <summary>
+        /// Delete a bucket item
+        /// </summary>
+        /// <param name="bucketKey">Bucket key</param>
+        /// <param name="objectKey">Object key</param>
+        /// <param name="accessToken">Access token</param>
+        /// <returns></returns>
         public static async Task<HttpResponseMessage> DeleteObjectAsync(string bucketKey, string objectKey, string accessToken)
         {
             var client = new OssClient(SdkManagerHelper.Instance);
