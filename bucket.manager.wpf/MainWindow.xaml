@@ -32,11 +32,11 @@
                 </Grid.ColumnDefinitions>
                 <DockPanel Grid.Column="0" Grid.Row="0">
                     <Label Content="{x:Static local:StringResources.lblId}"></Label>
-                    <TextBox Name="ForgeClientId" ToolTip="{x:Static local:StringResources.tooltipID}"  VerticalAlignment="Center" HorizontalAlignment="Stretch" IsEnabled="{Binding Path=UIEnabled}"></TextBox>
+                    <TextBox Name="APSClientId" ToolTip="{x:Static local:StringResources.tooltipID}"  VerticalAlignment="Center" HorizontalAlignment="Stretch" IsEnabled="{Binding Path=UIEnabled}"></TextBox>
                 </DockPanel>
                 <DockPanel Grid.Column="1" Grid.Row="0">
                     <Label Content="{x:Static local:StringResources.lblSecret}"></Label>
-                        <TextBox Name="ForgeClientSecret" ToolTip="{x:Static local:StringResources.tooltipSecret}" VerticalAlignment="Center" HorizontalAlignment="Stretch" IsEnabled="{Binding Path=UIEnabled}"></TextBox>
+                        <TextBox Name="APSClientSecret" ToolTip="{x:Static local:StringResources.tooltipSecret}" VerticalAlignment="Center" HorizontalAlignment="Stretch" IsEnabled="{Binding Path=UIEnabled}"></TextBox>
                 </DockPanel>
                 <Button Name="AuthenticateButton" Margin="5 0 0 0 " VerticalAlignment="Center" Grid.Column="2" Grid.Row="0" Click="AuthenticateButton_Click" IsEnabled="{Binding Path=UIEnabled}" Content="{x:Static local:StringResources.btnAuthenticate}"></Button>
                 <DockPanel VerticalAlignment="Center" Grid.Row="1" Grid.ColumnSpan="2" Grid.Column="0" >
@@ -67,7 +67,7 @@
                 </Grid.RowDefinitions>
                 <DockPanel Grid.Row="0">
                     <Label Content="{x:Static local:StringResources.lblRegion}"></Label>
-                    <ComboBox Name="Region" VerticalAlignment="Center" SelectedIndex="0" IsEnabled="{Binding Path=UIEnabled}">
+                    <ComboBox Name="Region" VerticalAlignment="Center" SelectedIndex="0" IsEnabled="{Binding Path=UIEnabled}" SelectionChanged="Region_OnSelectionChanged">
                         <ComboBoxItem Content="{x:Static local:StringResources.cbItemUS}"></ComboBoxItem>
                         <ComboBoxItem Content="{x:Static local:StringResources.cbItemEMEA}"></ComboBoxItem>
                     </ComboBox>
@@ -116,7 +116,7 @@
                 </StackPanel>
 
             </Grid>
-            <TreeView Grid.Column="0" Grid.Row="1" Padding="2px" Name="ForgeBucketsTree" IsEnabled="{Binding Path=UIEnabled}" MouseDoubleClick="ForgeBucketsTree_OnMouseDoubleClick">
+            <TreeView Grid.Column="0" Grid.Row="1" Padding="2px" Name="APSBucketsTree" IsEnabled="{Binding Path=UIEnabled}" MouseDoubleClick="ForgeBucketsTree_OnMouseDoubleClick">
                 <TreeView.Resources>
                     <HierarchicalDataTemplate DataType="{x:Type localvm:BucketVM}" ItemsSource="{Binding Items}" >
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">

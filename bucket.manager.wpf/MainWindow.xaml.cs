@@ -1,26 +1,25 @@
-﻿using System;
+﻿using Microsoft.Win32;
+
+using System;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
-using Autodesk.Forge;
-using Autodesk.Forge.Model;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using Autodesk.Forge.Client;
-using bucket.manager.wpf.ViewModels;
-using Microsoft.Win32;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Text.RegularExpressions;
-using System.Windows.Media.Imaging;
-using RestSharp;
+using System.Net.Http;
+using Microsoft.Web.WebView2.Core;
+
+using Autodesk.Authentication.Model;
+using Autodesk.Oss.Model;
+
+using bucket.manager.wpf.ViewModels;
 using bucket.manager.wpf.Utils;
 using bucket.manager.wpf.Views;
-using Microsoft.Web.WebView2.Core.Raw;
-using System.Windows.Interop;
-using Microsoft.Web.WebView2.Core;
+using bucket.manager.wpf.APSUtils;
+
 
 namespace bucket.manager.wpf
 {
@@ -30,14 +29,12 @@ namespace bucket.manager.wpf
     public partial class MainWindow : Window
     {
         private DateTime _expiresAt;
-        //private Timer _tokenTimer;
         private HighPrecisionTimer? _tokenTimer;
         private HighPrecisionTimer? _translationTimer;
         private readonly MainWindowDataContext _context = new();
         private readonly ObservableCollection<BucketVM> _buckets = new();
         private bool _uiWait;
         
-        private const int UploadChunkSize = 2 * 1024 * 1024;
         private const int TimeTickInterval = 500;
         private const int TranslateTickInterval = 5000;
         private const int TranslateTimeLimit = 5000 * 12 * 60; // Sixty minutes
@@ -52,11 +49,11 @@ namespace bucket.manager.wpf
            
             Icon = ImageFromBytes.GetBitmapImage(StringResources.logo);
             DataContext = _context;
-            ForgeBucketsTree.ItemsSource = _buckets;
+            APSBucketsTree.ItemsSource = _buckets;
             _context.StatusBarText = StringResources.statusReady;
 
-            ForgeClientId.Text = Environment.GetEnvironmentVariable("FORGE_CLIENT_ID");
-            ForgeClientSecret.Text = Environment.GetEnvironmentVariable("FORGE_CLIENT_SECRET");
+            APSClientId.Text = Environment.GetEnvironmentVariable("APS_CLIENT_ID") ?? string.Empty;
+            APSClientSecret.Text = Environment.GetEnvironmentVariable("APS_CLIENT_SECRET") ?? string.Empty;
 
         }
 
@@ -69,7 +66,7 @@ namespace bucket.manager.wpf
                 _context.StatusBarText = StringResources.statusReady;
         }
 
-        private async Task ForgeApiCaller(Func<Task> function)
+        private async Task APSAPICaller(Func<Task> function)
         {
             try
             {
@@ -77,9 +74,9 @@ namespace bucket.manager.wpf
                 _context.IsProgressBarIndetermined = true;
                 await function();
             }
-            catch (ApiException ee)
+            catch (HttpRequestException ee)
             {
-                MessageBox.Show(ee.ErrorContent, StringResources.errorCaption + ee.ErrorCode);
+                MessageBox.Show(ee.Message, StringResources.errorCaption);
                 _context.StatusBarText = StringResources.errGeneral;
                 _uiWait = false;
                 CleanUp();
@@ -100,14 +97,13 @@ namespace bucket.manager.wpf
 
             }
         }
-
         private async void AuthenticateButton_Click(object sender, RoutedEventArgs e)
         {
-            await ForgeApiCaller(async () =>
+            await APSAPICaller(async () =>
             {
                 _uiWait = true;
-                var id = ForgeClientId.Text;
-                var secret = ForgeClientSecret.Text;
+                var id = APSClientId.Text;
+                var secret = APSClientSecret.Text;
 
                 if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(secret))
                 {
@@ -115,19 +111,15 @@ namespace bucket.manager.wpf
                     return;
                 }
 
-                var oAuth = new TwoLeggedApi();
-                _context.StatusBarText = StringResources.statusAuthenticating;
-                Bearer token = (await oAuth.AuthenticateAsync(
-                        id,
-                        secret,
-                        oAuthConstants.CLIENT_CREDENTIALS,
-                        new Scope[] { Scope.BucketRead, Scope.BucketCreate, Scope.DataRead, Scope.DataWrite }))
-                    .ToObject<Bearer>();
-
-
-
+                var token = await Authentication.GetToken(id, secret,
+                    [Scopes.BucketRead, Scopes.BucketCreate, Scopes.DataRead, Scopes.DataWrite, Scopes.ViewablesRead]);
+                       
+                
                 _context.AccessToken = token.AccessToken;
-                if (token.ExpiresIn != null) _expiresAt = DateTime.Now.AddSeconds(token.ExpiresIn.Value);
+                if (token.ExpiresIn != null)
+                {
+                    _expiresAt = DateTime.Now.AddSeconds(token.ExpiresIn.Value);
+                }
 
                 // keep track on time
                 _tokenTimer = new HighPrecisionTimer()
@@ -174,25 +166,10 @@ namespace bucket.manager.wpf
         {
             nodeBucket.Items.Clear();
 
-            var objects = new ObjectsApi
-            {
-                Configuration =
-                {
-                    AccessToken = _context.AccessToken
-                }
-            };
-
-            var derivative = new DerivativesApi
-            {
-                Configuration =
-                {
-                    AccessToken = _context.AccessToken
-                }
-            };
-
-            _context.StatusBarText = StringResources.statusRefreshingBucketItems + nodeBucket.Key;
+           _context.StatusBarText = StringResources.statusRefreshingBucketItems + nodeBucket.Key;
             // show objects on the given TreeNode
-            BucketObjects objectsList = (await objects.GetObjectsAsync(nodeBucket.Key)).ToObject<BucketObjects>();
+            var objectsList = await OSS.GetBucketObjectsAsync(nodeBucket.Key, _context.AccessToken);
+
             foreach (var objInfo in objectsList.Items)
             {
                 var plainTextBytes = System.Text.Encoding.UTF8.GetBytes(objInfo.ObjectId);
@@ -200,45 +177,28 @@ namespace bucket.manager.wpf
                 var item = new BucketItemVM(nodeBucket)
                 {
                     Name = objInfo.ObjectKey,
-                    Key = System.Convert.ToBase64String(plainTextBytes)
+                    Key = Convert.ToBase64String(plainTextBytes)
                 };
                 nodeBucket.Items.Add(item);
-                /*
-                // get the translation manifest
-                try
-                {
-                    var manifest = (await derivative.GetManifestAsync(item.Key)).ToString();
-                }
-                catch (Exception)
-                {
-                    // Ignore, we want continue if there isn't a manifest available
-                }
-                */
             }
 
             nodeBucket.IsExpanded = wantExpand;
         }
         private async void RefreshBucketButton_Click(object sender, RoutedEventArgs e)
         {
-            await ForgeApiCaller(async () =>
+            await APSAPICaller(async () =>
             {
 
                 _buckets.Clear();
-                var bucketApi = new BucketsApi
-                {
-                    Configuration =
-                    {
-                        AccessToken = _context.AccessToken
-                    }
-                };
-
+               
                 // Control GetBucket pagination
                 string? lastBucket = null;
                 Buckets buckets;
                 do
                 {
                     _context.StatusBarText = StringResources.statusRefreshingBuckets;
-                    buckets = (await bucketApi.GetBucketsAsync(Region.Text, 100, lastBucket)).ToObject<Buckets>();
+                    buckets = (await OSS.GetBucketsAsync(_context.Region, _context.AccessToken, 100, lastBucket));
+
                     foreach (var bucketsItem in buckets.Items)
                     {
                         var nodeBucket = new BucketVM
@@ -267,18 +227,18 @@ namespace bucket.manager.wpf
         private async void UploadFileButton_Click(object sender, RoutedEventArgs e)
         {
 
-            await ForgeApiCaller(async () =>
+            await APSAPICaller(async () =>
             {
                 _context.IsProgressBarIndetermined = false;
 
-                if (ForgeBucketsTree.SelectedItem is null or not BucketVM)
+                if (APSBucketsTree.SelectedItem is null or not BucketVM)
                 {
                     MessageBox.Show(StringResources.errorUploadMessage, StringResources.errorUploadCaption);
                     return;
                 }
 
 
-                var bucket = ForgeBucketsTree.SelectedItem as BucketVM;
+                var bucket = APSBucketsTree.SelectedItem as BucketVM;
                 var bucketKey = bucket?.Key;
 
                 // ask user to select file
@@ -287,84 +247,38 @@ namespace bucket.manager.wpf
                     Multiselect = false
                 };
                 if (formSelectFile.ShowDialog() is null or false)
+                {
                     return;
+                }
+
                 var filePath = formSelectFile.FileName;
                 var objectKey = Path.GetFileName(filePath);
-
-                var objects = new ObjectsApi
-                {
-                    Configuration =
-                    {
-                                    AccessToken = _context.AccessToken
-                    }
-                };
 
                 // get file size
                 var fileSize = (new FileInfo(filePath)).Length;
 
                 // show progress bar for upload
                 _context.StatusBarText = StringResources.statusPreparingUpload;
-                _context.IsProgressBarIndetermined = true;
-
-                // decide if upload direct or resumable (by chunks)
-                if (fileSize > UploadChunkSize) // upload in chunks
+                var result = await OSS.UploadFileWithProgress(bucketKey!, objectKey, filePath, _context.AccessToken,
+                    new ProgressUpdater(_context));
+                if (result.StatusCode == System.Net.HttpStatusCode.OK)
                 {
-                    var numberOfChunks = (long)Math.Round((double)(fileSize / UploadChunkSize)) + 1;
-
-                    _context.ProgressBarMaximum = (int)numberOfChunks;
-
-                    var start = 0L;
-                    var chunkSize = (numberOfChunks > 1 ? UploadChunkSize : fileSize);
-                    var end = chunkSize;
-                    var sessionId = Guid.NewGuid().ToString();
-
-                    // upload one chunk at a time
-                    using (var reader = new BinaryReader(new FileStream(filePath, FileMode.Open)))
-                    {
-                        for (var chunkIndex = 0; chunkIndex < numberOfChunks; chunkIndex++)
-                        {
-                            var range = $"bytes {start}-{end}/{fileSize}";
-
-                            var numberOfBytes = chunkSize + 1;
-                            var fileBytes = new byte[numberOfBytes];
-                            var memoryStream = new MemoryStream(fileBytes);
-                            reader.BaseStream.Seek(start, SeekOrigin.Begin);
-                            var count = reader.Read(fileBytes, 0, (int)numberOfBytes);
-                            memoryStream.Write(fileBytes, 0, (int)numberOfBytes);
-                            memoryStream.Position = 0;
-
-                            await objects.UploadChunkAsync(bucketKey, objectKey,
-                                (int)numberOfBytes, range, sessionId, memoryStream);
-
-                            start = end + 1;
-                            chunkSize = ((start + chunkSize > fileSize) ? fileSize - start - 1 : chunkSize);
-                            end = start + chunkSize;
-                            _context.IsProgressBarIndetermined = false;
-                            _context.StatusBarText =
-                                $"{(chunkIndex * chunkSize) / 1024.0 / 1024.0:F2}" + StringResources.statusMbsUploaded;
-                            _context.ProgressBarPercentage = chunkIndex;
-                        }
-                    }
-
-                    _context.ProgressBarPercentage = _context.ProgressBarMaximum;
+                    await UpdateBucketObjects(bucket!, true);
                 }
-                else // upload in a single call
+                else
                 {
-                    using var streamReader = new StreamReader(filePath);
-                    await objects.UploadObjectAsync(bucketKey,
-                        objectKey, (int)streamReader.BaseStream.Length, streamReader.BaseStream,
-                        "application/octet-stream");
+                    _context.StatusBarText = $"{StringResources.errorCaption} : {result.Content.ToString() ?? string.Empty}";
                 }
-
-                await UpdateBucketObjects(bucket, true);
+                
+                
             });
         }
 
         private async void DeleteObjectButton_Click(object sender, RoutedEventArgs e)
         {
-            await ForgeApiCaller(async () =>
+            await APSAPICaller(async () =>
             {
-                var selectedItem = ForgeBucketsTree.SelectedItem;
+                var selectedItem = APSBucketsTree.SelectedItem;
                 if (selectedItem is null or not BucketItemVM)
                 {
                     MessageBox.Show(StringResources.errorObjectSelectionMessage, StringResources.errorObjectSelectionCaption);
@@ -375,35 +289,26 @@ namespace bucket.manager.wpf
                     StringResources.msgDeleteConfirmCaption, MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (dlgResult != MessageBoxResult.Yes)
                     return;
-                var objects = new ObjectsApi
-                {
-                    Configuration =
-                    {
-                        AccessToken = _context.AccessToken
-                    }
-                };
+                
 
                 _context.StatusBarText = StringResources.statusDelete + bucketItem.Name;
-                await objects.DeleteObjectAsync(bucketItem.ParentKey, bucketItem.Name);
+                await OSS.DeleteObjectAsync(bucketItem.ParentKey, bucketItem.Name, _context.AccessToken);
                 bucketItem.Remove();
             });
         }
 
         private async void IsTranslationReady(object sender, EventArgs e)
         {
-            var derivative = new DerivativesApi
-            {
-                Configuration =
-                {
-                    AccessToken = _context.AccessToken
-                }
-            };
-
+          
             // get the translation manifest
-            dynamic manifest = await derivative.GetManifestAsync(_translationTimer.BucketItem?.Key);
-            var progress = (string.IsNullOrWhiteSpace(Regex.Match(manifest.progress, @"\d+").Value)
+            var manifest = await ModelDerivatives.GetManifestAsync( _translationTimer.BucketItem?.Key, _context.AccessToken, _context.Region);
+            if (manifest is null)
+            {
+                return;
+            }
+            var progress = (string.IsNullOrWhiteSpace(Regex.Match(manifest.Progress, @"\d+").Value)
                 ? 100
-                : int.Parse(Regex.Match(manifest.progress, @"\d+").Value));
+                : int.Parse(Regex.Match(manifest.Progress, @"\d+").Value));
 
             // for better UX, show a small number of progress (instead zero)
             _context.ProgressBarPercentage = (progress == 0 ? 1 : progress);
@@ -428,53 +333,28 @@ namespace bucket.manager.wpf
         }
         private async void TranslateMenuItemClick(object sender, RoutedEventArgs e)
         {
-            await ForgeApiCaller(async () =>
+            await APSAPICaller(async () =>
             {
                 var item = sender as MenuItem;
-                JobPayloadItem.TypeEnum workType;
-                Enum.TryParse(item?.Name, out workType);
-                var selectedItem = ForgeBucketsTree.SelectedItem;
+       
+                var selectedItem = APSBucketsTree.SelectedItem;
                 if (selectedItem is null or not BucketItemVM)
                 {
                     MessageBox.Show(StringResources.errorObjectSelectionMessage, StringResources.errorObjectSelectionCaption);
                     return;
                 }
-
+               
                 var bucketItem = selectedItem as BucketItemVM;
                 _context.StatusBarText = string.Format("{0}, {1}", bucketItem.Name,
                     StringResources.statusTranslating);
                 var urn = bucketItem?.Key;
-                JobPayloadItem payloadItem = null;
-                if (workType is JobPayloadItem.TypeEnum.Svf or JobPayloadItem.TypeEnum.Svf2)
-                {
-                    payloadItem = new JobPayloadItem(
-                        workType,
-                        new List<JobPayloadItem.ViewsEnum>()
-                        {
-                            JobPayloadItem.ViewsEnum._2d,
-                            JobPayloadItem.ViewsEnum._3d
-                        });
-                }
-                else
-                {
-                    payloadItem = new JobPayloadItem(workType);
-                }
 
-                var outputs = new List<JobPayloadItem>() { payloadItem };
-
-                var derivative = new DerivativesApi
-                {
-                    Configuration =
-                    {
-                        AccessToken = _context.AccessToken
-                    }
-                };
-                var job = new JobPayload(new JobPayloadInput(urn), new JobPayloadOutput(outputs));
 
                 _context.ProgressBarMaximum = 100;
                 _context.ProgressBarPercentage = 0;
                 _context.IsProgressBarIndetermined = false;
-                await derivative.TranslateAsync(job, true);
+                await ModelDerivatives.TranslateAsync(urn, _context.AccessToken, _context.Region,
+                    item?.Name ?? "svf2");
                 _uiWait = true;
 
                 // start a monitor job to follow the translation
@@ -501,47 +381,53 @@ namespace bucket.manager.wpf
 
         private async void DownloadSVFButton_Click(object sender, RoutedEventArgs e)
         {
-            await ForgeApiCaller(async () =>
+            await APSAPICaller(async () =>
             {
-                if (ForgeBucketsTree.SelectedItem is null or not BucketItemVM)
+                if (APSBucketsTree.SelectedItem is null or not BucketItemVM)
                 {
                     MessageBox.Show(StringResources.errorObjectSelectionMessage,
                         StringResources.errorObjectSelectionCaption);
                     return;
                 }
 
-                var bucketItem = ForgeBucketsTree.SelectedItem as BucketItemVM;
+                var bucketItem = APSBucketsTree.SelectedItem as BucketItemVM;
                 var urn = bucketItem?.Key;
                 var folderPicker = new FolderPicker();
 
-                if (folderPicker.ShowDialog() != true) return;
+                if (folderPicker.ShowDialog() != true)
+                {
+                    return;
+                }
+
                 var folderPath = folderPicker.ResultPath;
-                folderPath = Path.Combine(folderPath, bucketItem.Name + ".md");
-                if (Directory.Exists(folderPath)) Directory.Delete(folderPath, true);
+                folderPath = Path.Combine(folderPath, bucketItem?.Name + ".md");
+                if (Directory.Exists(folderPath))
+                {
+                    Directory.Delete(folderPath, true);
+                }
                 Directory.CreateDirectory(folderPath);
 
 
                 _context.StatusBarText = StringResources.statusDownloading;
-
                 // get the list of resources to download
-                var resourcesToDownload = await ForgeUtils.Derivatives.ExtractSVFAsync(urn, _context.AccessToken);
+                var resourcesToDownload = await ModelDerivatives.PrepareUrlForDownload(urn, _context.AccessToken, _context.Region);
 
                 // update the UI
-                _context.ProgressBarMaximum = resourcesToDownload.Count;
                 _context.ProgressBarPercentage = 0;
+                _context.ProgressBarMaximum = resourcesToDownload.Count;
                 _context.IsProgressBarIndetermined = false;
-                var client = new RestClient("https://developer.api.autodesk.com/");
-                foreach (ForgeUtils.Derivatives.Resource resource in resourcesToDownload)
+                var client = new HttpClient();
+                foreach (ModelDerivatives.Resource resource in resourcesToDownload)
                 {
 
-                    ++_context.ProgressBarPercentage;
                     _context.StatusBarText = StringResources.statusDownloadingFile + resource.FileName;
 
                     // prepare the GET to download the file
-                    var request = new RestRequest(resource.RemotePath, Method.Get);
-                    request.AddHeader("Authorization", "Bearer " + _context.AccessToken);
-                    request.AddHeader("Accept-Encoding", "gzip, deflate");
-                    var response = await client.ExecuteAsync(request);
+                    var request = new HttpRequestMessage(HttpMethod.Get, resource.RemotePath);
+                    request.Headers.TryAddWithoutValidation("Content-Type", resource.ContentType);
+                    request.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
+                    request.Headers.TryAddWithoutValidation("Cookie", resource.CookieList);
+                    var response = await client.SendAsync(request);
 
                     if (response.StatusCode != System.Net.HttpStatusCode.OK)
                     {
@@ -553,12 +439,21 @@ namespace bucket.manager.wpf
                     else
                     {
                         // combine with selected local path
-                        string pathToSave = Path.Combine(folderPath, resource.LocalPath);
-                        // ensure local dir exists
-                        Directory.CreateDirectory(Path.GetDirectoryName(pathToSave));
-                        // save file
-                        File.WriteAllBytes(pathToSave, response.RawBytes);
+                        var pathToSave = Path.Combine(folderPath, resource.LocalPath);
+                        if (!string.IsNullOrWhiteSpace(pathToSave))
+                        {
+                            // ensure local dir exists
+                            Directory.CreateDirectory(Path.GetDirectoryName(pathToSave)!);
+                            await using var s = await response.Content.ReadAsStreamAsync();
+                            await using var fs = new FileStream(pathToSave, FileMode.Create);
+                            await s.CopyToAsync(fs);
+                            // save file
+                            
+                        }
                     }
+                    
+                    ++_context.ProgressBarPercentage;
+
                 }
 
             });
@@ -566,7 +461,7 @@ namespace bucket.manager.wpf
 
         private async void CreateBucketButton_Click(object sender, RoutedEventArgs e)
         {
-            await ForgeApiCaller(async () =>
+            await APSAPICaller(async () =>
             {
 
                 if (string.IsNullOrEmpty(_context.AccessToken))
@@ -579,18 +474,11 @@ namespace bucket.manager.wpf
                 var result = createDialog.ShowDialog();
                 if (result == true)
                 {
-                    var buckets = new BucketsApi
-                    {
-                        Configuration =
-                        {
-                            AccessToken = _context.AccessToken
-                        }
-                    };
+  
                     _uiWait = true;
                     var bucketKey = createDialog.AddGuid.IsChecked == true ? $"{createDialog.BucketName.Text}.{Guid.NewGuid()}" : createDialog.BucketName.Text;
-                    var bucketPayload = new PostBucketsPayload(bucketKey.ToLower(), null, PostBucketsPayload.PolicyKeyEnum.Transient);
-                    await buckets.CreateBucketAsync(bucketPayload, Region.Text);
-                    RefreshBucketButton_Click(null, null);
+                    await OSS.CreateBucketAsync(_context.Region, bucketKey, "transient", _context.AccessToken);
+                    RefreshBucketButton_Click(null!, null!);
                 }
             });
         }
@@ -647,10 +535,35 @@ namespace bucket.manager.wpf
         {
             if (e.OriginalSource is not TextBlock)
                 return;
-            if (ForgeBucketsTree.SelectedItem is BucketItemVM bucketItem)
+            if (APSBucketsTree.SelectedItem is BucketItemVM bucketItem)
             {
                 WebView.CoreWebView2.Navigate($"https://bucketmanager/HTML/Viewer.html?URN={bucketItem.Key}&Token={_context.AccessToken}");
             }
+        }
+
+        internal class ProgressUpdater : IProgress<int>
+        {
+            private readonly MainWindowDataContext _context;
+
+            public ProgressUpdater(MainWindowDataContext context)
+            {
+                _context = context;
+                _context.IsProgressBarIndetermined = true;
+                _context.ProgressBarPercentage = 0;
+                _context.ProgressBarMaximum = 100;
+            }
+
+            public void Report(int value)
+            {
+                _context.IsProgressBarIndetermined = false;
+                _context.ProgressBarPercentage = value;
+            }
+        }
+
+        private void Region_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var data = e.AddedItems[0] as ComboBoxItem;
+            _context.Region = data.Content.ToString();
         }
     }
 }
