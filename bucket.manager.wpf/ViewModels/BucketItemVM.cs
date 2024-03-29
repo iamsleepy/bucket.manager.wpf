@@ -10,7 +10,13 @@ namespace bucket.manager.wpf.ViewModels
         private string _name = string.Empty;
         private string _key = string.Empty;
         private readonly BucketVM _parent ;
+        private bool _isExpanded = false;
 
+        public bool IsExpanded
+        {
+            get => _isExpanded;
+            set => SetField(ref _isExpanded, value);
+        }
         public BucketItemVM(BucketVM parent)
         {
             _parent = parent;
