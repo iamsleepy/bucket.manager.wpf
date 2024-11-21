@@ -150,6 +150,9 @@
   <data name="btnUploadFile" xml:space="preserve">
     <value>Upload File</value>
   </data>
+  <data name="cbItemAPAC" xml:space="preserve">
+    <value>APAC</value>
+  </data>
   <data name="cbItemEMEA" xml:space="preserve">
     <value>EMEA</value>
     <comment>Do not translate</comment>
@@ -282,5 +285,8 @@
   </data>
   <data name="tooltipSecret" xml:space="preserve">
     <value>Paste your Application Client Secret here</value>
+  </data>
+  <data name="__unused" xml:space="preserve">
+    <value />
   </data>
 </root>

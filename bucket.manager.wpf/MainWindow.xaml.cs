@@ -301,7 +301,7 @@ namespace bucket.manager.wpf
         {
           
             // get the translation manifest
-            var manifest = await ModelDerivatives.GetManifestAsync( _translationTimer.BucketItem?.Key, _context.AccessToken, _context.Region);
+            var manifest = await ModelDerivatives.GetManifestAsync( _translationTimer.BucketItem?.Key, _context.AccessToken, (Autodesk.ModelDerivative.Model.Region)_context.Region);
             if (manifest is null)
             {
                 return;
@@ -353,7 +353,7 @@ namespace bucket.manager.wpf
                 _context.ProgressBarMaximum = 100;
                 _context.ProgressBarPercentage = 0;
                 _context.IsProgressBarIndetermined = false;
-                await ModelDerivatives.TranslateAsync(urn, _context.AccessToken, _context.Region,
+                await ModelDerivatives.TranslateAsync(urn, _context.AccessToken, (Autodesk.ModelDerivative.Model.Region)_context.Region,
                     item?.Name ?? "svf2");
                 _uiWait = true;
 
@@ -410,7 +410,7 @@ namespace bucket.manager.wpf
 
                 _context.StatusBarText = StringResources.statusDownloading;
                 // get the list of resources to download
-                var resourcesToDownload = await ModelDerivatives.PrepareUrlForDownload(urn, _context.AccessToken, _context.Region);
+                var resourcesToDownload = await ModelDerivatives.PrepareUrlForDownload(urn, _context.AccessToken, (Autodesk.ModelDerivative.Model.Region)_context.Region);
 
                 // update the UI
                 _context.ProgressBarPercentage = 0;
@@ -477,7 +477,7 @@ namespace bucket.manager.wpf
   
                     _uiWait = true;
                     var bucketKey = createDialog.AddGuid.IsChecked == true ? $"{createDialog.BucketName.Text}.{Guid.NewGuid()}" : createDialog.BucketName.Text;
-                    await OSS.CreateBucketAsync(_context.Region, bucketKey, "transient", _context.AccessToken);
+                    await OSS.CreateBucketAsync(_context.Region, bucketKey, PolicyKey.Transient, _context.AccessToken);
                     RefreshBucketButton_Click(null!, null!);
                 }
             });
@@ -563,7 +563,13 @@ namespace bucket.manager.wpf
         private void Region_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var data = e.AddedItems[0] as ComboBoxItem;
-            _context.Region = data.Content.ToString();
-        }
+            _context.Region = data?.Content.ToString() switch
+            {
+                "APAC" => Autodesk.Oss.Model.Region.APAC,
+                "EMEA" => Autodesk.Oss.Model.Region.EMEA,
+                _ => Autodesk.Oss.Model.Region.US
+
+            };
+    }
     }
 }

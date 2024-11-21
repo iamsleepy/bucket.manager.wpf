@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,7 +34,7 @@ namespace bucket.manager.wpf.APSUtils
         /// <param name="limit">Limit to the response size</param>
         /// <param name="startAt">The position to start listing the result set. This parameter is used to request the next set of items, when the response is paginated.</param>
         /// <returns></returns>
-        public static async Task<Buckets> GetBucketsAsync(string region, string accessToken, int? limit, string? startAt)
+        public static async Task<Buckets> GetBucketsAsync(Region region, string accessToken, int? limit, string? startAt)
         {
             var client = new OssClient(SdkManagerHelper.Instance);
             var result = await client.GetBucketsAsync(region, limit, startAt, accessToken);
@@ -48,7 +49,7 @@ namespace bucket.manager.wpf.APSUtils
         /// <param name="policy">Bucket storage policy</param>
         /// <param name="accessToken">Access Token</param>
         /// <returns></returns>
-        public static async Task<Bucket?> CreateBucketAsync(string region, string key, string policy, string accessToken)
+        public static async Task<Bucket?> CreateBucketAsync(Region region, string key, PolicyKey policy, string accessToken)
         {
             var client = new OssClient(SdkManagerHelper.Instance);
             var payload = new CreateBucketsPayload { PolicyKey = policy, BucketKey = key};
@@ -69,10 +70,14 @@ namespace bucket.manager.wpf.APSUtils
         public static async Task<HttpResponseMessage> UploadFileWithProgress(string bucketKey, string objectKey, string sourceToUpload, string accessToken, IProgress<int> progressUpdater)
         {
             // Create a new OSS file transfer client, using the configurations and authentication client
-            var client = new OSSFileTransfer(FileTransferConfigurations.Instance, new Authentication());
+            var client = new OSSFileTransfer(FileTransferConfigurations.Instance, SdkManagerHelper.Instance);
 
             // Upload the file
-            return await client.Upload(bucketKey, objectKey, sourceToUpload, accessToken, CancellationToken.None, progress:progressUpdater);
+            using (var sourceStream = File.OpenRead(sourceToUpload))
+            {
+                return await client.Upload(bucketKey, objectKey, sourceStream, accessToken, CancellationToken.None,
+                    progress: progressUpdater);
+            }
         }
 
         /// <summary>

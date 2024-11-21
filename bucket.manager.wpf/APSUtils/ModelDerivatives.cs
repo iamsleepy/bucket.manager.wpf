@@ -12,19 +12,6 @@ namespace bucket.manager.wpf.APSUtils
     internal static class ModelDerivatives
     {
         /// <summary>
-        /// Parse the region string to Region enum
-        /// </summary>
-        /// <param name="region"></param>
-        /// <returns></returns>
-        private static Region GetRegionEnum(string region)
-        {
-            return region switch
-            {
-                "EMEA" => Region.EMEA,
-                _ => Region.US
-            };
-        }
-        /// <summary>
         /// Translate the URN to SVF or SVF2
         /// </summary>
         /// <param name="urn">Resource urn</param>
@@ -32,17 +19,15 @@ namespace bucket.manager.wpf.APSUtils
         /// <param name="region">Desired region</param>
         /// <param name="workType">Desired format</param>
         /// <returns></returns>
-        public static async Task<Job> TranslateAsync(string urn, string accessToken, string region, string workType)
+        public static async Task<Job> TranslateAsync(string urn, string accessToken, Region region, string workType)
         {
             var client = new ModelDerivativeClient(SdkManagerHelper.Instance);
-            var regionEnum = GetRegionEnum(region);
-
 
             // Set the output format based on the work type
-            JobPayloadFormat outputFormat = workType switch
+            IJobPayloadFormat outputFormat = workType switch
             {
-                "svf" => new JobSvfOutputFormat { Views = [View._2d, View._3d] },
-                _ => new JobSvf2OutputFormat { Views = [View._2d, View._3d] }
+                "svf" => new JobPayloadFormatSVF { Views = [View._2d, View._3d] },
+                _ => new JobPayloadFormatSVF2 { Views = [View._2d, View._3d] }
             };
 
             // Prepare the job payload
@@ -51,13 +36,12 @@ namespace bucket.manager.wpf.APSUtils
                 Input = new JobPayloadInput { Urn = urn },
                 Output = new JobPayloadOutput
                 {
-                    Formats = [outputFormat],
-                    Destination = new JobPayloadOutputDestination { Region = regionEnum }
+                    Formats = [outputFormat]
                 }
             };
 
             // Start the job
-            return await client.StartJobAsync(false, XAdsDerivativeFormat.Latest, jobPayload, accessToken);
+            return await client.StartJobAsync(jobPayload, region, accessToken: accessToken);
         }
 
         /// <summary>
@@ -67,12 +51,11 @@ namespace bucket.manager.wpf.APSUtils
         /// <param name="accessToken">Access token</param>
         /// <param name="region">Desired region</param>
         /// <returns></returns>
-        public static async Task<Manifest?> GetManifestAsync(string urn, string accessToken, string region)
+        public static async Task<Manifest?> GetManifestAsync(string urn, string accessToken, Region region)
         {
             var client = new ModelDerivativeClient(SdkManagerHelper.Instance);
-            var regionEnum = GetRegionEnum(region);
 
-            return await client.GetManifestAsync(urn, regionEnum, null, accessToken, true);
+            return await client.GetManifestAsync(urn, region, null, accessToken, true);
         }
         /// <summary>
         /// Prepare a list of URL and cookies for a given URN
@@ -81,7 +64,7 @@ namespace bucket.manager.wpf.APSUtils
         /// <param name="accessToken">Valid access token for downloading the resources</param>
         /// /// <param name="region">Desired region</param>
         /// <returns>List of resources for the given URN</returns>
-        public static async Task<List<Resource>> PrepareUrlForDownload(string urn, string accessToken, string region)
+        public static async Task<List<Resource>> PrepareUrlForDownload(string urn, string accessToken, Region region)
         {
 
             // Get manifest for the URN
@@ -127,7 +110,7 @@ namespace bucket.manager.wpf.APSUtils
             return resources;
 
             //  Parse a manifest child to get the resources
-            async Task<List<ManifestItem>> ParseManifest(ManifestChildren child)
+            async Task<List<ManifestItem>> ParseManifest(ManifestResources child)
             {
                 var result = new List<ManifestItem>();
                 // No URN, no files for downloading
@@ -169,13 +152,12 @@ namespace bucket.manager.wpf.APSUtils
         /// <param name="region">Desired region</param>
         /// <param name="accessToken">Access token for APS services</param>
         /// <returns></returns>
-        private static async Task<DerivativeDownloadWithCookie> FetchDerivativeDownloadUrl(string derivativeUrn, string urn, string region, string accessToken)
+        private static async Task<DerivativeDownloadWithCookie> FetchDerivativeDownloadUrl(string derivativeUrn, string urn, Region region, string accessToken)
         {
             // Get the download URL for the resource. The latest API uses signed cookies for downloading the resources.
             // We use APIs from Autodesk.ModelDerivative.Http to get the DerivativeDownload with HttpResponse
             var client = new DerivativesApi(SdkManagerHelper.Instance);
-            var regionEnum = GetRegionEnum(region);
-            var derivativeDownloadResponse =  await client.GetDerivativeUrlAsync(derivativeUrn, urn, regionEnum, accessToken: accessToken, throwOnError: true);
+            var derivativeDownloadResponse =  await client.GetDerivativeUrlAsync(derivativeUrn, urn, region:region, accessToken: accessToken, throwOnError: true);
             return new DerivativeDownloadWithCookie
             {
                 DownloadInfo = derivativeDownloadResponse.Content,

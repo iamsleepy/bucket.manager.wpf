@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using Autodesk.ModelDerivative.Model;
 
 namespace bucket.manager.wpf.ViewModels
 {
@@ -13,7 +14,7 @@ namespace bucket.manager.wpf.ViewModels
         
         // Locking all buttons is not the best solution, we can do better in real production world 
         private bool _uiEnabled = true;
-        public string Region = "US";
+        public Autodesk.Oss.Model.Region Region = Autodesk.Oss.Model.Region.US;
         
         private bool _isProgressBarIndetermined;
         private int _progressBarMaximum = 100;
